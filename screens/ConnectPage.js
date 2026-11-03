@@ -1,83 +1,75 @@
 import React, { useState } from "react";
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from "expo-secure-store";
 import {
   StyleSheet,
   Text,
   View,
-  Button,
   TextInput,
   Image,
   TouchableOpacity,
-  Alert
+  Alert,
 } from "react-native";
+import { buildApiUrl } from "../config";
 
 const ConnectPage = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert("Erreur", "Email et mot de passe requis.");
+      return;
+    }
+
     const data = {
-      email: email,
-      password: password,
+      email: email.trim(),
+      password,
     };
-  
+
     try {
-      const response = await fetch("https://irieya1-production.up.railway.app/login", {
+      const response = await fetch(buildApiUrl("/login"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(data),
       });
-  
-      // Check if response is valid JSON
+
       let responseData;
       const contentType = response.headers.get("Content-Type");
       if (contentType && contentType.includes("application/json")) {
         responseData = await response.json();
       } else {
-        const textData = await response.text(); // Read as text for debugging
+        const textData = await response.text();
         console.error("Unexpected response format:", textData);
-        alert("Unexpected response from server. Please try again.");
+        Alert.alert("Erreur", "Réponse inattendue du serveur.");
         return;
       }
-  
+
       if (!response.ok) {
-        alert("Login failed: " + (responseData.message || "Unknown error"));
+        Alert.alert("Erreur", responseData.message || "Connexion impossible.");
         return;
       }
-  
-      console.log("Login response:", responseData);
-  
+
       if (responseData.status === "success") {
-        // Save the token in AsyncStorage
         if (responseData.token) {
-          await AsyncStorage.setItem("userToken", responseData.token);
-          console.log("Token saved successfully.");
-          navigation.navigate("HomePage"); // Navigate to home page
+          await SecureStore.setItemAsync("userToken", responseData.token);
+          navigation.navigate("HomePage");
         } else {
-          alert("Login succeeded, but no token received.");
+          Alert.alert("Erreur", "Aucun token reçu après connexion.");
         }
       } else if (responseData.message) {
-        setError(responseData.message);
-        setSuccessMessage("");
-
-        // Display user-friendly error message
-        Alert.alert("Sign-up Error", responseData.message);
+        Alert.alert("Erreur", responseData.message);
       }
     } catch (error) {
       console.error("Error during login:", error);
-      alert("Error: " + error.message);
+      Alert.alert("Erreur", "Une erreur inattendue s'est produite.");
     }
   };
-  
 
   return (
     <View style={styles.container}>
-      <Image
-        source={require("../assets/irieya.png")}
-        style={styles.logo}
-      />
+      <Image source={require("../assets/irieya.png")} style={styles.logo} />
       <TextInput
         placeholder="email"
         style={styles.textInput}
@@ -96,14 +88,12 @@ const ConnectPage = ({ navigation }) => {
         <Text style={styles.buttonText}>se connecter</Text>
       </TouchableOpacity>
 
-
       <TouchableOpacity
         style={styles.button2}
         onPress={() => navigation.navigate("SignUp")}
       >
         <Text style={styles.buttonText}>créer un compte</Text>
       </TouchableOpacity>
-
     </View>
   );
 };
@@ -114,7 +104,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flex: 1,
     backgroundColor: "#FFFFFF",
-
   },
 
   textInput: {
@@ -142,14 +131,14 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   button2: {
-    backgroundColor: "#B57BF9", 
+    backgroundColor: "#B57BF9",
     padding: 10,
     marginVertical: 10,
     borderRadius: 20,
     width: "32%",
     alignItems: "center",
     left: 90,
-    top: -60, 
+    top: -60,
     zIndex: 2,
   },
   buttonText: {

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "rn-irieya",
+    "name": "Iriéya",
     "slug": "rn-irieya",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,10 +11,15 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "ios": {
+    "updates": {
+      "enabled": false
+    },
+  "ios": {
       "supportsTablet": true
     },
     "android": {
+      "package": "com.irieya.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -25,6 +30,11 @@
     },
     "plugins": [
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "04dd5eb9-6cca-4397-81c7-9d613f361a4a"
+      }
+    }
   }
 }

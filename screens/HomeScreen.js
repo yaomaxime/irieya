@@ -98,24 +98,24 @@ const styles = StyleSheet.create({
 
   positionHygiene: {
     top: height * 0.1, 
-    left: width * 0.55, 
+    left: width * 0.52, 
     zIndex: 2,
 
   },
   positionEquality: {
     top: height * 0.4, 
-    right: width * -0.05, 
+    right: width * -0.04, 
     zIndex: 2,
 
   },
   positionConfidence: {
     top: height * 0.24, 
-    left: width * 0.55,  
+    left: width * 0.52,  
     zIndex: 2,
   },
   positionSexism: {
     top: height * -0.5,  
-    right: width * -0.05, 
+    right: width * -0.04, 
     zIndex: 2,
 
   },

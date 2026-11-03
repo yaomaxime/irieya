@@ -4,72 +4,87 @@ import {
   Text,
   View,
   TextInput,
-  Button,
   Alert,
   TouchableOpacity,
   Image,
 } from "react-native";
 import App from "../components/navBar";
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from "expo-secure-store";
 import * as Font from "expo-font";
+import { buildApiUrl } from "../config";
 
-
-const SettingsScreen = ({ userId, navigation, userToken }) => {
+const SettingsScreen = ({ userId, navigation }) => {
   const [name, setName] = useState("");
   const [firstName, setFirstName] = useState("");
   const [age, setAge] = useState("");
   const [email, setEmail] = useState("");
   const [pseudo, setPseudo] = useState("");
-  const [password, setPassword] = useState("");
   const [fontLoaded, setFontLoaded] = useState(false);
 
   const handleLogout = async () => {
-    await AsyncStorage.removeItem("userToken"); // Remove token
-    navigation.navigate("Connect"); // Redirect to login page
+    await SecureStore.deleteItemAsync("userToken");
+    navigation.navigate("Connect");
   };
 
-
-
-  // Fetch user profile when component mounts
   useEffect(() => {
-    fetch(`https://irieya1-production.up.railway.app/profile`)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Failed to fetch profile");
-        }
-        return response.json(); // Only call json() once
-      })
-      .then((data) => {
-        // Changed response to data
-        if (data) {
-          setName(data.name);
-          setFirstName(data.firstName);
-          setAge(data.age);
-          setEmail(data.email);
-          setPseudo(data.pseudo);
-          setPassword(data.password);
-        }
-      })
-      .catch((error) => {
-        console.error("Error fetching profile:", error);
-      });
-  }, [userId]);
+    const loadProfile = async () => {
+      const token = await SecureStore.getItemAsync("userToken");
+      if (!token) {
+        navigation.navigate("Connect");
+        return;
+      }
 
-  // Update user profile in Firebase
-  const handleSaveProfile = () => {
+      fetch(buildApiUrl("/profile"), {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error("Failed to fetch profile");
+          }
+          return response.json();
+        })
+        .then((data) => {
+          if (data) {
+            setName(data.name || "");
+            setFirstName(data.firstName || "");
+            setAge(data.age || "");
+            setEmail(data.email || "");
+            setPseudo(data.pseudo || "");
+          }
+        })
+        .catch((error) => {
+          console.error("Error fetching profile:", error);
+          Alert.alert("Erreur", "Impossible de charger le profil.");
+        });
+    };
+
+    loadProfile();
+  }, [userId, navigation]);
+
+  const handleSaveProfile = async () => {
+    const token = await SecureStore.getItemAsync("userToken");
+    if (!token) {
+      navigation.navigate("Connect");
+      return;
+    }
+
     const updatedProfile = {
       name,
       firstName,
       age,
       email,
       pseudo,
-      password,
     };
 
-    fetch(`https://irieya1-production.up.railway.app/profile`, {
+    fetch(buildApiUrl("/profile"), {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(updatedProfile),
     })
@@ -88,20 +103,16 @@ const SettingsScreen = ({ userId, navigation, userToken }) => {
 
   useEffect(() => {
     Font.loadAsync({
-      'Nunito': require("../assets/fonts/NunitoRegular.ttf"),
+      Nunito: require("../assets/fonts/NunitoRegular.ttf"),
       "Nunito-Bold": require("../assets/fonts/NunitoBold.ttf"),
     }).then(() => setFontLoaded(true));
   }, []);
 
-  if (!fontLoaded) return null; // Render nothing until the font is loaded
-
+  if (!fontLoaded) return null;
 
   return (
     <View style={styles.container}>
-
-      <Text style={[styles.title, styles.positionTitle]}>
-        Réglage
-      </Text>
+      <Text style={[styles.title, styles.positionTitle]}>Réglage</Text>
 
       <TouchableOpacity
         style={styles.logo}
@@ -144,20 +155,10 @@ const SettingsScreen = ({ userId, navigation, userToken }) => {
         value={pseudo}
         onChangeText={setPseudo}
       />
-      <TextInput
-        placeholder="Mot de passe"
-        style={styles.textInput}
-        value={password}
-        onChangeText={setPassword}
-      />
-      <TouchableOpacity
-        style={styles.button1}
-        onPress={handleLogout}
-      >
+      <TouchableOpacity style={styles.button1} onPress={handleLogout}>
         <Text style={styles.buttonText}>Se déconnecter</Text>
       </TouchableOpacity>
 
-      {/* Custom Button for Save Changes */}
       <TouchableOpacity style={styles.button2} onPress={handleSaveProfile}>
         <Text style={styles.buttonText}>Sauvegarder</Text>
       </TouchableOpacity>
@@ -168,7 +169,7 @@ const SettingsScreen = ({ userId, navigation, userToken }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
   },
 
   textInput: {
@@ -178,9 +179,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 10,
     width: "60%",
-    left:60,
-    top:100,
-    zIndex:2,
+    left: 60,
+    top: 100,
+    zIndex: 2,
   },
 
   profileImg: {
@@ -191,14 +192,13 @@ const styles = StyleSheet.create({
 
   logo: {
     marginBottom: 20,
-    left:-120,
-    top:-70,
+    left: -120,
+    top: -70,
   },
   navbar: {
     position: "absolute",
     width: "100%",
-    zIndex:1
-
+    zIndex: 1,
   },
   title: {
     fontSize: 24,
@@ -246,7 +246,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "bold",
   },
-
 });
 
 export default SettingsScreen;

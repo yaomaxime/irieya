@@ -1,18 +1,15 @@
 import React, { useState } from "react";
+import * as SecureStore from "expo-secure-store";
 import {
   StyleSheet,
   Text,
-  View,
-  Button,
   TextInput,
-  ScrollView,
-  FlatList,
+  View,
   Alert,
-  TouchableOpacity
+  TouchableOpacity,
 } from "react-native";
 import Dropdown from "../components/dropDown";
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
+import { buildApiUrl } from "../config";
 
 const SignUpPage = ({ navigation }) => {
   const [email, setEmail] = useState("");
@@ -22,22 +19,25 @@ const SignUpPage = ({ navigation }) => {
   const [firstName, setFirstName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
-  const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const handleSignUp = async () => {
+    if (!email.trim() || !password.trim() || !pseudo.trim()) {
+      Alert.alert("Erreur", "Email, mot de passe et pseudo sont requis.");
+      return;
+    }
 
     const data = {
-      email: email,
-      password: password,
-      pseudo: pseudo,
-      name: name,
-      firstName: firstName,
-      age: age,
-      gender:gender,
+      email: email.trim(),
+      password,
+      pseudo: pseudo.trim(),
+      name: name.trim(),
+      firstName: firstName.trim(),
+      age: age.trim(),
+      gender,
     };
+
     try {
-      const response = await fetch("https://irieya1-production.up.railway.app/signup", {
+      const response = await fetch(buildApiUrl("/signup"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -48,30 +48,20 @@ const SignUpPage = ({ navigation }) => {
       const responseData = await response.json();
 
       if (responseData.status === "success") {
-        setSuccessMessage("Sign-up successful!");
-        setError("");
-
         if (responseData.token) {
-          // Save the token to AsyncStorage
-          await AsyncStorage.setItem("userToken", responseData.token);
-          console.log("Token saved successfully.");
-          navigation.navigate("HomePage"); // Redirect to HomePage
+          await SecureStore.setItemAsync("userToken", responseData.token);
+          navigation.navigate("HomePage");
         } else {
-          alert("Sign-up succeeded, but no token received.");
+          Alert.alert("Erreur", "Inscription réussie, mais aucun token reçu.");
         }
       } else if (responseData.message) {
-        setError(responseData.message);
-        setSuccessMessage("");
-
-        // Display user-friendly error message
-        Alert.alert("Sign-up Error", responseData.message);
+        Alert.alert("Erreur", responseData.message);
+      }
+    } catch (error) {
+      console.error("Error during sign-up:", error);
+      Alert.alert("Erreur", "Une erreur inattendue s'est produite.");
     }
-  } catch (error) {
-    console.error("Error during sign-up:", error);
-    Alert.alert("Error", "An unexpected error occurred. Please try again.");
-  }
-};
-
+  };
 
   return (
     <View style={styles.container}>
@@ -120,15 +110,11 @@ const SignUpPage = ({ navigation }) => {
         onChangeText={setPseudo}
       />
 
-      <Dropdown 
-        value={gender}
-        onValueChange={setGender}
-      />
+      <Dropdown value={gender} onValueChange={setGender} />
 
       <TouchableOpacity style={styles.button1} onPress={handleSignUp}>
         <Text style={styles.buttonText}>créer le compte</Text>
       </TouchableOpacity>
-
 
       <TouchableOpacity
         style={styles.button2}
@@ -136,7 +122,6 @@ const SignUpPage = ({ navigation }) => {
       >
         <Text style={styles.buttonText}>retour</Text>
       </TouchableOpacity>
-      
     </View>
   );
 };
@@ -147,7 +132,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flex: 1,
     backgroundColor: "#FFFFFF",
-
   },
 
   textInput: {
@@ -161,11 +145,11 @@ const styles = StyleSheet.create({
 
   errorText: {
     marginTop: 20,
-    color: 'red',
+    color: "red",
   },
   successText: {
     marginTop: 20,
-    color: 'green',
+    color: "green",
   },
 
   button1: {
@@ -177,11 +161,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     left: -90,
     top: -10,
-
-
   },
   button2: {
-    backgroundColor: "#B57BF9", 
+    backgroundColor: "#B57BF9",
     padding: 10,
     marginVertical: 10,
     borderRadius: 20,
@@ -189,8 +171,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     left: 90,
     top: -60,
-    
-
   },
   buttonText: {
     color: "#fff",
