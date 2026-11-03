@@ -3,7 +3,9 @@ import os
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-import pyrebase
+import requests
+import firebase_admin
+from firebase_admin import credentials, auth as admin_auth
 
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -30,24 +32,29 @@ missing = [key for key, value in required_env.items() if not value]
 if missing:
     raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 
-config = {
-    "apiKey": required_env["FIREBASE_API_KEY"],
-    "authDomain": required_env["FIREBASE_AUTH_DOMAIN"],
-    "projectId": required_env["FIREBASE_PROJECT_ID"],
-    "storageBucket": required_env["FIREBASE_STORAGE_BUCKET"],
-    "messagingSenderId": required_env["FIREBASE_MESSAGING_SENDER_ID"],
-    "appId": required_env["FIREBASE_APP_ID"],
-    "measurementId": os.getenv("FIREBASE_MEASUREMENT_ID"),
-    "databaseURL": required_env["FIREBASE_DATABASE_URL"],
-}
-
-firebase = pyrebase.initialize_app(config)
-auth = firebase.auth()
-db = firebase.database()
+API_KEY = required_env["FIREBASE_API_KEY"]
+DATABASE_URL = required_env["FIREBASE_DATABASE_URL"].rstrip("/")
 
 app.secret_key = required_env["SECRET_KEY"]
 
 ALLOWED_PROFILE_FIELDS = {"name", "firstName", "age", "email", "pseudo", "gender"}
+
+
+def _initialize_firebase_admin():
+    try:
+        if not firebase_admin._apps:
+            service_account_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH")
+            if service_account_path:
+                cred = credentials.Certificate(service_account_path)
+                firebase_admin.initialize_app(cred, {"databaseURL": DATABASE_URL})
+            else:
+                firebase_admin.initialize_app(options={"databaseURL": DATABASE_URL})
+        return True
+    except Exception:
+        return False
+
+
+firebase_admin_ready = _initialize_firebase_admin()
 
 
 def get_token_from_request():
@@ -65,6 +72,52 @@ def sanitize_profile_data(data):
     return {key: value for key, value in data.items() if key in ALLOWED_PROFILE_FIELDS and value is not None}
 
 
+def _firebase_auth_request(endpoint, payload=None, method="POST"):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:{endpoint}?key={API_KEY}"
+    response = requests.request(method, url, json=payload, timeout=20)
+    data = response.json() if response.content else {}
+
+    if response.status_code >= 400:
+        message = data.get("error", {}).get("message", "Firebase request failed")
+        raise RuntimeError(message)
+
+    return data
+
+
+def _lookup_user(token):
+    return _firebase_auth_request("lookup", {"idToken": token}, method="POST")
+
+
+def _database_request(path, method="GET", payload=None, token=None):
+    url = f"{DATABASE_URL}/{path.lstrip('/')}".rstrip("/") + ".json"
+    params = {"auth": token} if token else None
+    response = requests.request(method, url, params=params, json=payload, timeout=20)
+    try:
+        data = response.json() if response.content else None
+    except ValueError:
+        data = response.text
+
+    if response.status_code >= 400:
+        raise RuntimeError(f"Database request failed: {response.status_code} {data}")
+
+    return data
+
+
+def _user_id_from_token(token):
+    if firebase_admin_ready:
+        try:
+            decoded = admin_auth.verify_id_token(token)
+            return decoded.get("uid")
+        except Exception:
+            pass
+
+    user_info = _lookup_user(token)
+    users = user_info.get("users") or []
+    if not users:
+        raise RuntimeError("User not found")
+    return users[0].get("localId")
+
+
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json(silent=True) or {}
@@ -75,10 +128,17 @@ def login():
         return jsonify({"status": "fail", "message": "Email et mot de passe requis."}), 400
 
     try:
-        user = auth.sign_in_with_email_and_password(email, password)
-        id_token = user.get('idToken')
-        return jsonify({"status": "success", "user": {"localId": user.get("localId")}, "token": id_token}), 200
-    except Exception as e:
+        user = _firebase_auth_request(
+            "signInWithPassword",
+            {"email": email, "password": password, "returnSecureToken": True},
+            method="POST",
+        )
+        return jsonify({
+            "status": "success",
+            "user": {"localId": user.get("localId")},
+            "token": user.get("idToken"),
+        }), 200
+    except Exception:
         return jsonify({"status": "fail", "message": "mot de passe incorrect ou e-mail incorrect"}), 401
 
 
@@ -98,8 +158,13 @@ def signup():
         return jsonify({"status": "fail", "message": "Email et mot de passe requis."}), 400
 
     try:
-        user = auth.create_user_with_email_and_password(email, password)
-        user_id = user['localId']
+        user = _firebase_auth_request(
+            "signUp",
+            {"email": email, "password": password, "returnSecureToken": True},
+            method="POST",
+        )
+        user_id = user["localId"]
+        id_token = user["idToken"]
 
         profile_data = {
             'name': name,
@@ -109,24 +174,30 @@ def signup():
             'pseudo': pseudo,
             'gender': gender,
         }
-        db.child("users").child(user_id).set(sanitize_profile_data(profile_data))
+        _database_request(f"users/{user_id}", method="PUT", payload=sanitize_profile_data(profile_data), token=id_token)
 
-        login_user = auth.sign_in_with_email_and_password(email, password)
-        id_token = login_user.get('idToken')
+        login_user = _firebase_auth_request(
+            "signInWithPassword",
+            {"email": email, "password": password, "returnSecureToken": True},
+            method="POST",
+        )
+        return jsonify({
+            "status": "success",
+            "user": {"localId": user_id},
+            "token": login_user.get("idToken"),
+        }), 200
 
-        return jsonify({"status": "success", "user": {"localId": user_id}, "token": id_token}), 200
-
-    except Exception as e:
-        error_message = str(e)
-
-        if 'EMAIL_EXISTS' in error_message:
+    except RuntimeError as exc:
+        message = str(exc)
+        if 'EMAIL_EXISTS' in message:
             return jsonify({"status": "fail", "message": "Un compte avec cet email existe déjà."}), 400
-        elif 'WEAK_PASSWORD' in error_message:
+        if 'WEAK_PASSWORD' in message:
             return jsonify({"status": "fail", "message": "Le mot de passe doit comporter au moins 6 caractères."}), 400
-        elif 'INVALID_EMAIL' in error_message:
+        if 'INVALID_EMAIL' in message:
             return jsonify({"status": "fail", "message": "Veuillez saisir une adresse mail valide."}), 400
-        else:
-            return jsonify({"status": "fail", "message": "Une erreur inattendue s'est produite. Veuillez réessayer."}), 500
+        return jsonify({"status": "fail", "message": "Une erreur inattendue s'est produite. Veuillez réessayer."}), 500
+    except Exception:
+        return jsonify({"status": "fail", "message": "Une erreur inattendue s'est produite. Veuillez réessayer."}), 500
 
 
 @app.route('/profile', methods=['GET'])
@@ -136,10 +207,8 @@ def get_profile():
         return jsonify({"error": "Authentication required."}), 401
 
     try:
-        user_info = auth.get_account_info(token)
-        user_id = user_info['users'][0]['localId']
-        user_data = db.child("users").child(user_id).get().val()
-
+        user_id = _user_id_from_token(token)
+        user_data = _database_request(f"users/{user_id}", method="GET", token=token)
         if user_data:
             return jsonify(user_data), 200
         return jsonify({"error": "User not found"}), 404
@@ -154,14 +223,13 @@ def update_profile():
         return jsonify({"error": "Authentication required."}), 401
 
     try:
-        user_info = auth.get_account_info(token)
-        user_id = user_info['users'][0]['localId']
+        user_id = _user_id_from_token(token)
         updated_data = sanitize_profile_data(request.get_json(silent=True) or {})
 
         if not updated_data:
             return jsonify({"error": "No valid profile fields provided."}), 400
 
-        db.child("users").child(user_id).update(updated_data)
+        _database_request(f"users/{user_id}", method="PATCH", payload=updated_data, token=token)
         return jsonify({"message": "Profile updated successfully"}), 200
     except Exception:
         return jsonify({"error": "Invalid token or update failed."}), 401
@@ -174,8 +242,7 @@ def verify_token():
         return jsonify({"status": "fail", "message": "Token is required."}), 401
 
     try:
-        user_info = auth.get_account_info(token)
-        user_id = user_info['users'][0]['localId']
+        user_id = _user_id_from_token(token)
         return jsonify({"status": "success", "user_id": user_id}), 200
     except Exception:
         return jsonify({"status": "fail", "message": "Invalid or expired token."}), 401
@@ -187,5 +254,6 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
 
