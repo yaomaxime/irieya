@@ -6,7 +6,11 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "web:dev": "npm --prefix frontend run dev",
+    "web:build": "npm --prefix frontend run build",
+    "web:preview": "npm --prefix frontend run preview",
+    "web:deploy": "npm run web:build && firebase deploy --only hosting"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "1.23.1",
@@ -27,7 +31,9 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
-    "prettier": "3.3.3"
+    "prettier": "3.3.3",
+    "typescript": "^5.3.3",
+    "@types/react": "~18.3.12"
   },
   "private": true
 }

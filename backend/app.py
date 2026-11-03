@@ -13,7 +13,10 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 app = Flask(__name__)
 allowed_origins = [
     origin.strip()
-    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:19006,http://localhost:3000").split(",")
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:19006,http://localhost:3000,http://localhost:5173",
+    ).split(",")
     if origin.strip()
 ]
 CORS(app, resources={r"/*": {"origins": allowed_origins}}, supports_credentials=True)
