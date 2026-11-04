@@ -284,6 +284,66 @@ def verify_token():
         return jsonify({"status": "fail", "message": "Invalid or expired token."}), 401
 
 
+@app.route('/change-password', methods=['POST'])
+def change_password():
+    token = get_token_from_request()
+    data = request.get_json(silent=True) or {}
+    current_password = data.get('currentPassword') or ''
+    new_password = data.get('newPassword') or ''
+
+    if not token:
+        return jsonify({"status": "fail", "message": "Authentication required."}), 401
+    if not current_password or not new_password:
+        return jsonify({"status": "fail", "message": "Saisissez le mot de passe actuel et le nouveau."}), 400
+    if len(new_password) < 6:
+        return jsonify({"status": "fail", "message": "Le nouveau mot de passe doit comporter au moins 6 caractères."}), 400
+
+    try:
+        user_id = _user_id_from_token(token)
+        lookup = _lookup_user(token)
+        users = lookup.get("users") or []
+        if not users or users[0].get("localId") != user_id:
+            return jsonify({"status": "fail", "message": "Session invalide. Reconnectez-vous."}), 401
+
+        email = users[0].get("email")
+        if not email:
+            return jsonify({"status": "fail", "message": "Impossible de retrouver l’adresse e-mail du compte."}), 401
+
+        current_user = _firebase_auth_request(
+            "signInWithPassword",
+            {"email": email, "password": current_password, "returnSecureToken": True},
+        )
+        if current_user.get("localId") != user_id:
+            return jsonify({"status": "fail", "message": "Le mot de passe actuel est incorrect."}), 401
+
+        try:
+            updated_user = _firebase_auth_request(
+                "update",
+                {"idToken": current_user["idToken"], "password": new_password, "returnSecureToken": True},
+            )
+        except RuntimeError as exc:
+            if str(exc) in {"WEAK_PASSWORD", "INVALID_PASSWORD"}:
+                return jsonify({"status": "fail", "message": "Le nouveau mot de passe ne respecte pas les exigences de Firebase."}), 400
+            raise
+        return jsonify({
+            "status": "success",
+            "token": updated_user.get("idToken", current_user["idToken"]),
+            "message": "Mot de passe modifié avec succès.",
+        }), 200
+    except RuntimeError as exc:
+        code = str(exc)
+        app.logger.warning("Firebase password change rejected with code: %s", code)
+        if code in {"INVALID_LOGIN_CREDENTIALS", "EMAIL_NOT_FOUND", "INVALID_PASSWORD", "USER_DISABLED"}:
+            return jsonify({"status": "fail", "message": "Le mot de passe actuel est incorrect."}), 401
+        return jsonify({"status": "fail", "message": _firebase_auth_error_message(exc, "password")}), 400
+    except requests.RequestException as exc:
+        app.logger.error("Firebase password change request failed: %s", type(exc).__name__)
+        return jsonify({"status": "fail", "message": "Le service Firebase est momentanément inaccessible. Réessayez plus tard."}), 503
+    except Exception as exc:
+        app.logger.exception("Unexpected Firebase password change failure: %s", type(exc).__name__)
+        return jsonify({"status": "fail", "message": "Impossible de modifier le mot de passe. Réessayez plus tard."}), 500
+
+
 @app.route('/', methods=['GET'])
 def index():
     return "hello world"

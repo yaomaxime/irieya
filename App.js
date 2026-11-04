@@ -19,14 +19,14 @@ import { topics } from "./frontend/src/content";
 import { buildApiUrl } from "./config";
 
 const COLORS = {
-  ink: "#25332f",
-  muted: "#6e7973",
-  canvas: "#f6f7f2",
+  ink: "#302936",
+  muted: "#756d7c",
+  canvas: "#faf8fc",
   paper: "#ffffff",
-  line: "#e4e9e2",
-  green: "#276b57",
-  greenDark: "#174b3c",
-  greenSoft: "#e7f2ec",
+  line: "#e9e3ed",
+  purple: "#8651ad",
+  purpleDark: "#593477",
+  purpleSoft: "#f1e8f7",
   coral: "#de816d",
   gold: "#e5b64f",
   lavender: "#8276ba",
@@ -120,7 +120,7 @@ function Field({ label, value, onChangeText, placeholder, ...props }) {
           autoCapitalize="none"
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor="#9ba49e"
+          placeholderTextColor="#a49baa"
           style={[styles.input, rightIcon && styles.inputWithAction]}
           value={value}
           {...inputProps}
@@ -381,6 +381,13 @@ function App() {
   const [openQuestion, setOpenQuestion] = useState(0);
   const [profileMessage, setProfileMessage] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    current: "",
+    next: "",
+    confirm: "",
+  });
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -501,6 +508,52 @@ function App() {
     }
   };
 
+  const changePassword = async () => {
+    setPasswordMessage("");
+    if (!passwordForm.current || !passwordForm.next || !passwordForm.confirm) {
+      setPasswordMessage("Renseigne les trois champs du mot de passe.");
+      return;
+    }
+    if (passwordForm.next.length < 6) {
+      setPasswordMessage(
+        "Le nouveau mot de passe doit comporter au moins 6 caractères.",
+      );
+      return;
+    }
+    if (passwordForm.next !== passwordForm.confirm) {
+      setPasswordMessage(
+        "La confirmation ne correspond pas au nouveau mot de passe.",
+      );
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const result = await apiRequest("/change-password", {
+        method: "POST",
+        token,
+        body: {
+          currentPassword: passwordForm.current,
+          newPassword: passwordForm.next,
+        },
+      });
+      if (result.token) {
+        await SecureStore.setItemAsync("irieya-token", result.token);
+        setToken(result.token);
+      }
+      setPasswordForm({ current: "", next: "", confirm: "" });
+      setPasswordMessage(result.message || "Mot de passe modifié avec succès.");
+    } catch (reason) {
+      setPasswordMessage(
+        reason instanceof Error
+          ? reason.message
+          : "Impossible de modifier le mot de passe.",
+      );
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   if (!ready) {
     return (
       <SafeAreaView style={[styles.safe, styles.loadingScreen]}>
@@ -508,7 +561,7 @@ function App() {
           source={require("./assets/logo_transparent.png")}
           style={styles.loadingLogo}
         />
-        <ActivityIndicator color={COLORS.green} size="large" />
+        <ActivityIndicator color={COLORS.purple} size="large" />
         <Text style={styles.bodyCopy}>Préparation de ton espace…</Text>
       </SafeAreaView>
     );
@@ -538,12 +591,6 @@ function App() {
           Des contenus simples et bienveillants pour mieux te connaître et
           prendre confiance en toi.
         </Text>
-        <View style={styles.heroImageWrap}>
-          <Image
-            source={require("./assets/logo_transparent.png")}
-            style={styles.homeLogo}
-          />
-        </View>
       </View>
       <View style={styles.sectionHeading}>
         <View>
@@ -789,6 +836,71 @@ function App() {
         onPress={saveProfile}
         disabled={savingProfile}
       />
+      <View style={styles.settingsSection}>
+        <Text style={[styles.eyebrow, styles.spacedEyebrow]}>SÉCURITÉ</Text>
+        <Text style={styles.sectionTitle}>Changer le mot de passe</Text>
+        <Text style={styles.bodyCopy}>
+          Confirme ton mot de passe actuel avant d’en choisir un nouveau.
+        </Text>
+        {guest ? (
+          <Text style={styles.bodyCopy}>
+            Connecte-toi à un compte pour modifier son mot de passe.
+          </Text>
+        ) : (
+          <>
+            <Field
+              label="Mot de passe actuel"
+              value={passwordForm.current}
+              onChangeText={(value) =>
+                setPasswordForm((form) => ({ ...form, current: value }))
+              }
+              secureTextEntry
+              textContentType="password"
+              placeholder="Ton mot de passe actuel"
+            />
+            <Field
+              label="Nouveau mot de passe"
+              value={passwordForm.next}
+              onChangeText={(value) =>
+                setPasswordForm((form) => ({ ...form, next: value }))
+              }
+              secureTextEntry
+              textContentType="newPassword"
+              placeholder="6 caractères minimum"
+            />
+            <Field
+              label="Confirmer le nouveau mot de passe"
+              value={passwordForm.confirm}
+              onChangeText={(value) =>
+                setPasswordForm((form) => ({ ...form, confirm: value }))
+              }
+              secureTextEntry
+              textContentType="newPassword"
+              placeholder="Répète le nouveau mot de passe"
+            />
+            {passwordMessage ? (
+              <Text
+                style={
+                  passwordMessage.includes("succès")
+                    ? styles.saveMessage
+                    : styles.errorText
+                }
+              >
+                {passwordMessage}
+              </Text>
+            ) : null}
+            <Button
+              title={
+                changingPassword
+                  ? "Modification…"
+                  : "Mettre à jour le mot de passe"
+              }
+              onPress={changePassword}
+              disabled={changingPassword}
+            />
+          </>
+        )}
+      </View>
       <Button
         title={guest ? "Quitter le mode découverte" : "Se déconnecter"}
         secondary
@@ -859,7 +971,7 @@ const styles = StyleSheet.create({
   loadingLogo: { width: 140, height: 110, resizeMode: "contain" },
   authScroll: { flexGrow: 1, paddingBottom: 28 },
   authHero: {
-    backgroundColor: COLORS.greenDark,
+    backgroundColor: COLORS.purpleDark,
     paddingHorizontal: 24,
     paddingTop: 18,
     paddingBottom: 26,
@@ -873,7 +985,7 @@ const styles = StyleSheet.create({
   },
   brand: { flexDirection: "row", alignItems: "center", gap: 9 },
   brandImage: { width: 42, height: 42, resizeMode: "contain" },
-  brandName: { color: COLORS.greenDark, fontSize: 21, fontWeight: "800" },
+  brandName: { color: COLORS.purpleDark, fontSize: 21, fontWeight: "800" },
   brandTagline: { color: COLORS.muted, fontSize: 10, marginTop: 2 },
   heroMark: {
     width: 82,
@@ -885,7 +997,7 @@ const styles = StyleSheet.create({
   },
   heroLogo: { width: 66, height: 66, resizeMode: "contain" },
   heroEyebrow: {
-    color: "#d8e9dc",
+    color: "#e8dff0",
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.5,
@@ -899,16 +1011,16 @@ const styles = StyleSheet.create({
     maxWidth: 310,
   },
   authHeroCopy: {
-    color: "#dbe6df",
+    color: "#e5ddea",
     fontSize: 15,
     lineHeight: 23,
     marginTop: 10,
     maxWidth: 380,
   },
-  privacyLine: { color: "#d3e2d9", fontSize: 12, marginTop: 22 },
+  privacyLine: { color: "#ded2e7", fontSize: 12, marginTop: 22 },
   authForm: { paddingHorizontal: 24, paddingTop: 30, gap: 14 },
   eyebrow: {
-    color: COLORS.green,
+    color: COLORS.purple,
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 1.25,
@@ -941,24 +1053,24 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 3,
   },
-  inputActionText: { color: COLORS.green, fontSize: 12, fontWeight: "800" },
+  inputActionText: { color: COLORS.purple, fontSize: 12, fontWeight: "800" },
   button: {
     minHeight: 50,
     borderRadius: 10,
-    backgroundColor: COLORS.green,
+    backgroundColor: COLORS.purple,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 16,
     marginTop: 2,
   },
   buttonSecondary: {
-    backgroundColor: COLORS.greenSoft,
+    backgroundColor: COLORS.purpleSoft,
     borderWidth: 1,
-    borderColor: "#d1e5d9",
+    borderColor: "#e1d1eb",
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: "#fff", fontSize: 15, fontWeight: "800" },
-  buttonSecondaryText: { color: COLORS.greenDark },
+  buttonSecondaryText: { color: COLORS.purpleDark },
   pressed: { opacity: 0.78 },
   errorText: { color: "#a43d45", fontSize: 13, lineHeight: 18 },
   authSwitch: {
@@ -967,7 +1079,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     paddingVertical: 4,
   },
-  linkText: { color: COLORS.green, fontSize: 13, fontWeight: "800" },
+  linkText: { color: COLORS.purple, fontSize: 13, fontWeight: "800" },
   appHeader: {
     height: 58,
     paddingHorizontal: 18,
@@ -982,19 +1094,19 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: COLORS.greenSoft,
+    backgroundColor: COLORS.purpleSoft,
     alignItems: "center",
     justifyContent: "center",
   },
   headerAvatarText: {
-    color: COLORS.greenDark,
+    color: COLORS.purpleDark,
     fontWeight: "800",
     fontSize: 15,
   },
   pageContent: { padding: 20, paddingBottom: 32, gap: 14 },
   homeHero: {
     minHeight: 240,
-    backgroundColor: "#e8f0e8",
+    backgroundColor: "#f0eaf5",
     borderRadius: 18,
     padding: 22,
     overflow: "hidden",
@@ -1008,18 +1120,6 @@ const styles = StyleSheet.create({
     maxWidth: "80%",
     marginTop: 10,
   },
-  heroImageWrap: {
-    position: "absolute",
-    right: -24,
-    bottom: -27,
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: "#d8e7d8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  homeLogo: { width: 135, height: 135, resizeMode: "contain" },
   sectionHeading: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -1062,7 +1162,7 @@ const styles = StyleSheet.create({
   topicDescription: { color: COLORS.muted, fontSize: 13, lineHeight: 19 },
   cardLink: { fontSize: 13, fontWeight: "800", marginTop: 2 },
   dailyCard: {
-    backgroundColor: COLORS.greenDark,
+    backgroundColor: COLORS.purpleDark,
     borderRadius: 14,
     padding: 20,
     marginTop: 5,
@@ -1094,7 +1194,7 @@ const styles = StyleSheet.create({
   },
   emptyState: { alignItems: "center", padding: 28, gap: 8 },
   backButton: { alignSelf: "flex-start", paddingVertical: 3, marginBottom: 2 },
-  backText: { color: COLORS.green, fontSize: 14, fontWeight: "800" },
+  backText: { color: COLORS.purple, fontSize: 14, fontWeight: "800" },
   detailHeroImage: {
     width: "100%",
     height: 190,
@@ -1121,7 +1221,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   articleIntro: {
-    backgroundColor: COLORS.greenSoft,
+    backgroundColor: COLORS.purpleSoft,
     padding: 17,
     borderRadius: 12,
     marginTop: 18,
@@ -1150,7 +1250,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "700",
   },
-  chevron: { color: COLORS.green, fontSize: 22, fontWeight: "500" },
+  chevron: { color: COLORS.purple, fontSize: 22, fontWeight: "500" },
   answerText: {
     color: COLORS.muted,
     fontSize: 14,
@@ -1159,7 +1259,7 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   completeCard: {
-    backgroundColor: "#f0eee7",
+    backgroundColor: "#f2edf5",
     borderRadius: 14,
     padding: 19,
     marginTop: 14,
@@ -1180,19 +1280,19 @@ const styles = StyleSheet.create({
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: COLORS.greenSoft,
+    backgroundColor: COLORS.purpleSoft,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 5,
   },
-  avatarText: { color: COLORS.greenDark, fontSize: 27, fontWeight: "800" },
+  avatarText: { color: COLORS.purpleDark, fontSize: 27, fontWeight: "800" },
   privacyBadge: {
-    color: COLORS.green,
+    color: COLORS.purple,
     fontSize: 12,
     fontWeight: "700",
     marginTop: 4,
   },
-  saveMessage: { color: COLORS.green, fontSize: 13, lineHeight: 19 },
+  saveMessage: { color: COLORS.purple, fontSize: 13, lineHeight: 19 },
   bottomNav: {
     minHeight: 62,
     paddingBottom: Platform.OS === "ios" ? 2 : 5,
@@ -1212,7 +1312,14 @@ const styles = StyleSheet.create({
   },
   navIcon: { color: COLORS.muted, fontSize: 20, lineHeight: 23 },
   navLabel: { color: COLORS.muted, fontSize: 10, fontWeight: "700" },
-  navActive: { color: COLORS.green, fontWeight: "900" },
+  navActive: { color: COLORS.purple, fontWeight: "900" },
+  settingsSection: {
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.line,
+    paddingTop: 18,
+    marginTop: 8,
+  },
 });
 
 export default App;
