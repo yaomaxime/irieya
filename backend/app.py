@@ -87,6 +87,28 @@ def _firebase_auth_request(endpoint, payload=None, method="POST"):
     return data
 
 
+def _firebase_auth_error_message(error, operation):
+    code = str(error)
+    if code == "OPERATION_NOT_ALLOWED":
+        return "La connexion par e-mail et mot de passe n’est pas activée dans Firebase Authentication."
+    if code in {"API_KEY_INVALID", "API_KEY_SERVICE_BLOCKED", "PROJECT_NOT_FOUND"}:
+        return "La configuration Firebase est invalide. Vérifiez la clé API et ses restrictions dans Render."
+    if code == "EMAIL_EXISTS":
+        return "Un compte avec cet e-mail existe déjà."
+    if code == "WEAK_PASSWORD":
+        return "Le mot de passe doit comporter au moins 6 caractères."
+    if code == "INVALID_EMAIL":
+        return "Veuillez saisir une adresse e-mail valide."
+    if operation == "login" and code in {
+        "INVALID_LOGIN_CREDENTIALS",
+        "EMAIL_NOT_FOUND",
+        "INVALID_PASSWORD",
+        "USER_DISABLED",
+    }:
+        return "Adresse e-mail ou mot de passe incorrect."
+    return "Firebase n’a pas pu traiter la demande. Vérifiez les journaux du backend pour le code d’erreur."
+
+
 def _lookup_user(token):
     return _firebase_auth_request("lookup", {"idToken": token}, method="POST")
 
@@ -141,8 +163,14 @@ def login():
             "user": {"localId": user.get("localId")},
             "token": user.get("idToken"),
         }), 200
-    except Exception:
-        return jsonify({"status": "fail", "message": "mot de passe incorrect ou e-mail incorrect"}), 401
+    except RuntimeError as exc:
+        app.logger.warning("Firebase login rejected with code: %s", exc)
+        if str(exc) in {"INVALID_LOGIN_CREDENTIALS", "EMAIL_NOT_FOUND", "INVALID_PASSWORD", "USER_DISABLED"}:
+            return jsonify({"status": "fail", "message": _firebase_auth_error_message(exc, "login")}), 401
+        return jsonify({"status": "fail", "message": _firebase_auth_error_message(exc, "login")}), 400
+    except requests.RequestException as exc:
+        app.logger.error("Firebase login request failed: %s", type(exc).__name__)
+        return jsonify({"status": "fail", "message": "Le service Firebase est momentanément inaccessible. Réessayez plus tard."}), 503
 
 
 @app.route('/signup', methods=['POST'])
@@ -177,30 +205,35 @@ def signup():
             'pseudo': pseudo,
             'gender': gender,
         }
-        _database_request(f"users/{user_id}", method="PUT", payload=sanitize_profile_data(profile_data), token=id_token)
+        try:
+            _database_request(
+                f"users/{user_id}",
+                method="PUT",
+                payload=sanitize_profile_data(profile_data),
+                token=id_token,
+            )
+        except Exception as exc:
+            app.logger.exception("Firebase profile write failed after account creation")
+            return jsonify({
+                "status": "fail",
+                "message": "Le compte Firebase a été créé, mais le profil n’a pas pu être enregistré. Vérifiez les règles et l’URL de la base de données Firebase.",
+            }), 502
 
-        login_user = _firebase_auth_request(
-            "signInWithPassword",
-            {"email": email, "password": password, "returnSecureToken": True},
-            method="POST",
-        )
         return jsonify({
             "status": "success",
             "user": {"localId": user_id},
-            "token": login_user.get("idToken"),
+            "token": id_token,
         }), 200
 
     except RuntimeError as exc:
-        message = str(exc)
-        if 'EMAIL_EXISTS' in message:
-            return jsonify({"status": "fail", "message": "Un compte avec cet email existe déjà."}), 400
-        if 'WEAK_PASSWORD' in message:
-            return jsonify({"status": "fail", "message": "Le mot de passe doit comporter au moins 6 caractères."}), 400
-        if 'INVALID_EMAIL' in message:
-            return jsonify({"status": "fail", "message": "Veuillez saisir une adresse mail valide."}), 400
-        return jsonify({"status": "fail", "message": "Une erreur inattendue s'est produite. Veuillez réessayer."}), 500
-    except Exception:
-        return jsonify({"status": "fail", "message": "Une erreur inattendue s'est produite. Veuillez réessayer."}), 500
+        app.logger.warning("Firebase signup rejected with code: %s", exc)
+        return jsonify({"status": "fail", "message": _firebase_auth_error_message(exc, "signup")}), 400
+    except requests.RequestException as exc:
+        app.logger.error("Firebase signup request failed: %s", type(exc).__name__)
+        return jsonify({"status": "fail", "message": "Le service Firebase est momentanément inaccessible. Réessayez plus tard."}), 503
+    except Exception as exc:
+        app.logger.exception("Unexpected Firebase signup failure: %s", type(exc).__name__)
+        return jsonify({"status": "fail", "message": "Impossible de terminer l’inscription. Vérifiez les journaux du backend."}), 500
 
 
 @app.route('/profile', methods=['GET'])
